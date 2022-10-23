@@ -1,8 +1,8 @@
--- A CPS interpreter for shift0/reset0
+-- Type system for shift0/reset0 (MB)
 -- Based on Materzok & Biernacki [ICFP 2011]
 -- The version where σ in (ABS) and σ₁ and σ₂ in (SHIFT0) cannot be ε.
 
-module Mb-shift0 where
+module shift0-MB where
 
 open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Data.Bool using (true; false; if_then_else_) renaming (Bool to 𝔹)
@@ -44,10 +44,6 @@ data Exp  (var : Ty → Set) : Ty → Ann → Set where
            Exp var (τ₁ ⇒ τ₂ ,[ α , a ] β , b) ([ γ , c ] δ , d) →
            Exp var τ₁ ([ β , b ] γ , c) →
            Exp var τ₂ ([ α , a ] δ , d)
-  Plus   : {α β γ : Ty} {a b c : Ann} →
-           Exp var Nat ([ α , a ] β , b) →
-           Exp var Nat ([ γ , c ] α , a) →
-           Exp var Nat ([ γ , c ] β , b)
   Shift0 : {τ τ₃ τ₄ τ₅ τ₆ α β : Ty} {a₃ a₄ b₅ b₆ : Ann} →
            (var (τ ⇒ α ,[ τ₃ , a₃ ] τ₄ , a₄) →
             Exp var β ([ τ₅ , b₅ ] τ₆ , b₆)) →
@@ -81,7 +77,6 @@ g (Num n) k = k n
 g (Bol b) k = k b
 g (Lam f) k = k (λ x → g (f x))
 g (App e₁ e₂) k = g e₁ (λ v₁ → g e₂ (λ v₂ → v₁ v₂ k))
-g (Plus e₁ e₂) k = g e₁ (λ v₁ → g e₂ (λ v₂ → k (v₁ + v₂)))
 g (Shift0 f) k = g (f k)
 g (Reset0 e) = g e k1
 

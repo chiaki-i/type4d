@@ -1,9 +1,11 @@
 {-# OPTIONS --rewriting #-}
 
-module 4d-mb-shift0-eq where
+-- Translation between MB and 4Ddash (for shift0/reset0)
 
-open import 4d-shift0
-open import Mb-shift0
+module shift0-MB-4Ddash-eq where
+
+open import shift0-4Ddash
+open import shift0-MB
   renaming (Ty to TyMB; Ann to AnnMB; Exp to ExpMB)
 open import Data.Product using (_×_; proj₁; proj₂) renaming (_,_ to _,p_)
 open import Function using (_∘_)
@@ -222,8 +224,6 @@ toMB-Exp (Lam f) = Lam (λ x → toMB-Exp (f x))
 
 toMB-Exp (App e₁ e₂) = App (toMB-Exp e₁) (toMB-Exp e₂)
 
-toMB-Exp (Plus e₁ e₂) = Plus (toMB-Exp e₁) (toMB-Exp e₂)
-
 toMB-Exp (Shift0 f) =  Shift0 (λ k → toMB-Exp (f k))
 
 toMB-Exp {var} (Reset0 e) = Reset0 (toMB-Exp e)
@@ -366,8 +366,6 @@ fromMB-Exp (Bol b) = Bol b
 fromMB-Exp (Lam f) = Lam (λ x → fromMB-Exp (f x))
 
 fromMB-Exp (App e₁ e₂) = App (fromMB-Exp e₁) (fromMB-Exp e₂)
-
-fromMB-Exp (Plus e₁ e₂) = Plus (fromMB-Exp e₁) (fromMB-Exp e₂)
 
 fromMB-Exp (Shift0 f) = Shift0 (λ k → fromMB-Exp (f k))
 

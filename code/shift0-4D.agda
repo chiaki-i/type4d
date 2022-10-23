@@ -1,104 +1,135 @@
--- 4D Type system for shift0/reset0
--- This file includes below:
---   * a definition of a subset of λD: λ-calculus and shift0/reset0, with typing rules
---   * a CPS interpreter
+-- Type system for four delimited control operators (4D):
+-- for shift/reset, control/prompt, shift0/reset0, and control0/prompt0
 
-module 4d-shift0 where
+module shift0-4D where
 
 open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Data.Bool using (true; false; if_then_else_) renaming (Bool to 𝔹)
 open import Data.String using (String)
 open import Data.Unit using (⊤; tt)
-open import Data.Product using (_,_; _×_)
+open import Data.Empty using (⊥)
+open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality
 open Relation.Binary.PropositionalEquality.≡-Reasoning
 
 -- Types
 data Ty : Set
 
+data Tr : Set
+
 data Mc : Set
 
+-- Term types
 data Ty where
   Nat   : Ty
   Bool  : Ty
-  _⇒_,_,_,_,_ : Ty → Ty → Mc → Ty → Mc → Ty → Ty
+  _⇒_⟨_,_⟩_⟨_,_⟩_ : Ty → Ty → Tr → Mc → Ty → Tr → Mc → Ty → Ty
 
+-- Trail types
+data Tr where
+  ●μ       : Tr
+  _⇨⟨_,_⟩_ : Ty → Tr → Mc → Ty → Tr
+
+infix 5 _⇨⟨_,_⟩_
+
+-- Meta continuation types
 data Mc where
-  ●σ     : Mc
-  _⇨_,_∷_ : Ty → Mc → Ty → Mc → Mc
+  ●σ       : Mc
+  _⇨⟨_,_⟩_×_∷_ : Ty → Tr → Mc → Ty → Tr → Mc → Mc
+
+infix 6 _⇨⟨_,_⟩_×_∷_
+
+-- Compatibility relation
+compatible : Tr → Tr → Tr → Set
+compatible ●μ μ₂ μ₃ = μ₂ ≡ μ₃
+compatible (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') ●μ μ₃ = (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') ≡ μ₃
+compatible (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') (τ₂ ⇨⟨ μ₂ , σ₂ ⟩ τ₂') ●μ = ⊥
+compatible (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') (τ₂ ⇨⟨ μ₂ , σ₂ ⟩ τ₂') (τ₃ ⇨⟨ μ₃ , σ₃ ⟩ τ₃') =
+  τ₁ ≡ τ₃ × τ₁' ≡ τ₃' × σ₁ ≡ σ₃ × compatible (τ₂ ⇨⟨ μ₂ , σ₂ ⟩ τ₂') μ₃ μ₁
+
+-- Identity continuation check
+id-cont-type : Ty → Tr → Mc → Ty → Set
+id-cont-type τ ●μ ●σ τ' = τ ≡ τ'
+id-cont-type τ ●μ (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁' × μ₂ ∷ σ₂) τ' = (τ ≡ τ₁) × (τ' ≡ τ₁') × (μ₁ ≡ μ₂) × (σ₁ ≡ σ₂)
+id-cont-type τ (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') σ₂ τ' = (τ ≡ τ₁) × (τ' ≡ τ₁') × (μ₁ ≡ ●μ) × (σ₁ ≡ σ₂)
 
 -- Terms
--- e : Exp var τ σα α σβ β  means that e
+-- e : Exp var τ μα σα α μβ σβ β  means that e
 --  * has type τ
 --  * requires
 --      - a context that yields a computation of type α
---        when given a metacontext of type σα
+--        when given a trail of type μα and a metacontext of type σα
+--      - a trail of type μβ
 --      - a metacontext of type σβ
 --  * eventually returns a value of type β
-data Exp (var : Ty → Set) : Ty → Mc → Ty → Mc → Ty → Set where
-  Var    : {τ α : Ty} {σα : Mc} →
-           var τ → Exp var τ σα α σα α
-  Num    : {α : Ty} {σα : Mc} →
-           ℕ → Exp var Nat σα α σα α
-  Bol    : {α : Ty} {σα : Mc} →
-           𝔹 → Exp var Bool σα α σα α
-  Lam    : {τ₁ τ₂ α β γ : Ty} {σα σβ σγ : Mc} →
-           (var τ₁ → Exp var τ₂ σα α σβ β) →
-           Exp var (τ₁ ⇒ τ₂ , σα , α , σβ , β) σγ γ σγ γ
-  App    : {τ₁ τ₂ α β γ δ : Ty} {σα σβ σγ σδ : Mc} →
-           Exp var (τ₁ ⇒ τ₂ , σα , α , σβ , β) σγ γ σδ δ →
-           Exp var τ₁ σβ β σγ γ →
-           Exp var τ₂ σα α σδ δ
-  Plus   : {α β γ : Ty} {σα σβ σγ : Mc} →
-           Exp var Nat σα α σβ β →
-           Exp var Nat σγ γ σα α →
-           Exp var Nat σγ γ σβ β
-  Shift0 : {τ τ' τ₀ α α' α₀ β : Ty} {σ' σ₀ σ₀' σ₁' : Mc} →
-           (var (τ ⇒ τ' , σ₁' , α' , σ' , α) →
-            Exp var τ₀ σ₀ α₀ σ₀' β) →
-           Exp var τ (τ' ⇨ σ₁' , α' ∷ σ') α (τ₀ ⇨ σ₀ , α₀ ∷ σ₀') β
-  Reset0 : {τ α α' β β' : Ty} {σ σ' σ₁ : Mc} →
-           Exp var β (β ⇨ σ' , β' ∷ σ') β' (τ ⇨ σ₁ , α ∷ σ) α' →
-           Exp var τ σ₁ α σ α'
+data Exp (var : Ty → Set) : Ty → Tr → Mc → Ty → Tr → Mc → Ty → Set where
+  Var      : {τ α : Ty} {μα : Tr} {σα : Mc} →
+             var τ → Exp var τ μα σα α μα σα α
+  Num      : {α : Ty} {μα : Tr} {σα : Mc} →
+             ℕ → Exp var Nat μα σα α μα σα α
+  Bol      : {α : Ty} {μα : Tr} {σα : Mc} →
+             𝔹 → Exp var Bool μα σα α μα σα α
+  Lam      : {τ₁ τ₂ α β γ : Ty} {μα μβ μγ : Tr} {σα σβ σγ : Mc} →
+             (var τ₁ → Exp var τ₂ μα σα α μβ σβ β) →
+             Exp var (τ₁ ⇒ τ₂ ⟨ μα , σα ⟩ α ⟨ μβ , σβ ⟩ β) μγ σγ γ μγ σγ γ
+  App      : {τ₁ τ₂ α β γ δ : Ty} {μα μβ μγ μδ : Tr} {σα σβ σγ σδ : Mc} →
+             Exp var (τ₁ ⇒ τ₂ ⟨ μα , σα ⟩ α ⟨ μβ , σβ ⟩ β) μγ σγ γ μδ σδ δ →
+             Exp var τ₁ μβ σβ β μγ σγ γ →
+             Exp var τ₂ μα σα α μδ σδ δ
+  Shift0   : {τ τ₀ τ₀' τ₁ τ₂ α β : Ty} {μ₀ μ₀' μ₁ μ₂ μβ : Tr} {σ₀ σ₀' σ₁ σ₂ : Mc} →
+             (var (τ ⇒ τ₁ ⟨ μ₁ , σ₁ ⟩ τ₂ ⟨ μ₂ , σ₂ ⟩ α) →
+              (Exp var τ₀ μ₀ σ₀ τ₀' μ₀' σ₀' β)) →
+             Exp var τ μβ (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₂ × μ₂ ∷ σ₂ ) α μβ (τ₀ ⇨⟨ μ₀ , σ₀ ⟩ τ₀' × μ₀' ∷ σ₀' ) β
+  Prompt0  : {τ α β γ γ' : Ty} {μ μα μβ μid : Tr} {σ σα σβ σid : Mc} →
+             id-cont-type γ μid (γ ⇨⟨ μ , σ ⟩ γ' × μ ∷ σ) γ' →
+             Exp var γ μid (γ ⇨⟨ μ , σ ⟩ γ' × μ ∷ σ) γ' ●μ (τ ⇨⟨ μα , σα ⟩ α × μβ ∷ σβ) β →
+             Exp var τ μα σα α μβ σβ β
 
 -- Interpretation of types
 〚_〛τ : Ty → Set
+〚_〛μ : Tr → Set
 〚_〛σ : Mc → Set
 
 〚 Nat 〛τ = ℕ
 〚 Bool 〛τ = 𝔹
-〚 τ₂ ⇒ τ₁ , σα , α , σβ , β 〛τ =
-  〚 τ₂ 〛τ → (〚 τ₁ 〛τ → 〚 σα 〛σ → 〚 α 〛τ) → 〚 σβ 〛σ → 〚 β 〛τ
+〚 τ₂ ⇒ τ₁ ⟨ μα , σα ⟩ α ⟨ μβ , σβ ⟩ β 〛τ =
+  〚 τ₂ 〛τ → (〚 τ₁ 〛τ → 〚 μα 〛μ → 〚 σα 〛σ → 〚 α 〛τ) →
+  〚 μβ 〛μ → 〚 σβ 〛σ → 〚 β 〛τ
+
+〚 ●μ 〛μ = ⊤
+〚 τ ⇨⟨ μ , σ ⟩ τ' 〛μ = 〚 τ 〛τ → 〚 μ 〛μ → 〚 σ 〛σ → 〚 τ' 〛τ
 
 〚 ●σ 〛σ = ⊤
-〚 τ ⇨ σ , τ' ∷ σ' 〛σ = (〚 τ 〛τ → 〚 σ 〛σ → 〚 τ' 〛τ) × 〚 σ' 〛σ
+〚 τ ⇨⟨ μ , σ ⟩ τ' × μ' ∷ σ' 〛σ =
+  ((〚 τ 〛τ → 〚 μ 〛μ → 〚 σ 〛σ → 〚 τ' 〛τ) × 〚 μ' 〛μ) × 〚 σ' 〛σ
+
+-- Trail composition
+compose-trail : {μ₁ μ₂ μ₃ : Tr} →
+                compatible μ₁ μ₂ μ₃ → 〚 μ₁ 〛μ → 〚 μ₂ 〛μ → 〚 μ₃ 〛μ
+compose-trail {●μ} refl tt t2 = t2
+compose-trail {τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁'} {●μ} refl t1 tt = t1
+compose-trail {τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁'} {τ₂ ⇨⟨ μ₂ , σ₂ ⟩ τ₂'} {.τ₁ ⇨⟨ μ₃ , .σ₁ ⟩ .τ₁'} (refl , refl , refl , c) t1 t2 =
+  λ v t' m' → t1 v (compose-trail c t2 t') m'
 
 -- Initial continuation
-θ₀ : {τ : Ty} →
-     〚 τ 〛τ → 〚 ●σ 〛σ → 〚 τ 〛τ
-θ₀ v tt = v
-
-θ₁ : {τ τ' : Ty} {σ : Mc} →
-     〚 τ 〛τ → 〚 τ ⇨ σ , τ' ∷ σ 〛σ → 〚 τ' 〛τ
-θ₁ v (k , m) = k v m
+idk : {τ τ' : Ty} → {μ : Tr} → {σ : Mc} →
+      id-cont-type τ μ σ τ' →
+      〚 τ 〛τ → 〚 μ 〛μ → 〚 σ 〛σ → 〚 τ' 〛τ
+idk {μ = ●μ} {●σ} refl v tt tt = v
+idk {μ = ●μ} {x ⇨⟨ x₁ , σ ⟩ x₂ × .x₁ ∷ .σ} (refl , refl , refl , refl) v tt ((k₀ , t₀) , m₀) = k₀ v t₀ m₀
+idk {μ = x₁ ⇨⟨ .●μ , x₃ ⟩ x₄} (refl , refl , refl , refl) v t m = t v tt m
 
 -- Interpretation of terms
-g : {var : Ty → Set} {τ α β : Ty} {σα σβ : Mc} →
-    Exp 〚_〛τ τ σα α σβ β →
-    (〚 τ 〛τ → 〚 σα 〛σ → 〚 α 〛τ) → 〚 σβ 〛σ → 〚 β 〛τ
-g (Var x) k m = k x m
-g (Num n) k m = k n m
-g (Bol b) k m = k b m
-g (Lam f) k m = k (λ x → g {var = 〚_〛τ} (f x)) m
-g (App e₁ e₂) k m =
+g : {var : Ty → Set} {τ α β : Ty} {μα μβ : Tr} {σα σβ : Mc} →
+    Exp 〚_〛τ τ μα σα α μβ σβ β →
+    (〚 τ 〛τ → 〚 μα 〛μ → 〚 σα 〛σ → 〚 α 〛τ) →
+    〚 μβ 〛μ → 〚 σβ 〛σ → 〚 β 〛τ
+g (Var x) k t m = k x t m
+g (Num n) k t m = k n t m
+g (Bol b) k t m = k b t m
+g (Lam f) k t m = k (λ x t₁ m₁ → g {var = 〚_〛τ} (f x) t₁ m₁) t m
+g (App e₁ e₂) k t m =
   g {var = 〚_〛τ} e₁
-    (λ v₁ m₁ → g {var = 〚_〛τ} e₂ (λ v₂ m₂ → v₁ v₂ k m₂) m₁) m
-g (Plus e₁ e₂) k m =
-  g {var = 〚_〛τ} e₁
-    (λ v₁ m₁ → g {var = 〚_〛τ} e₂ (λ v₂ m₂ → k (v₁ + v₂) m₂) m₁) m
-g (Shift0 f) k (k₀ , m₀) = g {var = 〚_〛τ} (f λ v k' m' → k v (k' , m')) k₀ m₀
-g (Reset0 e) k m = g {var = 〚_〛τ} e θ₁ (k , m)
-
--- Top-level evaluation
-go : {τ : Ty} → Exp 〚_〛τ τ ●σ τ ●σ τ → 〚 τ 〛τ
-go e = g {var = 〚_〛τ} e θ₀ tt
+    (λ v₁ t₁ m₁ → g {var = 〚_〛τ} e₂ (λ v₂ t₂ m₂ → v₁ v₂ k t₂ m₂) t₁ m₁) t m
+g (Shift0 f) k t ((k₀ , t₀) , m₀) = g {var = 〚_〛τ} (f (λ v k' t' m' → k v t ((k' , t') , m'))) k₀ t₀ m₀
+g (Prompt0 is-id e) k t m = g {var = 〚_〛τ} e (idk is-id) tt ((k , t), m)
