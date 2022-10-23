@@ -1,10 +1,7 @@
--- Type system for four delimited control operators:
--- shift/reset, control/prompt, shift0/reset0, and control0/prompt0
--- This file includes below:
---   * a definition of λD, with typing rules
---   * a CPS interpreter
+-- Type system for four delimited control operators (4D):
+-- for shift/reset, control/prompt, shift0/reset0, and control0/prompt0
 
-module 4d where
+module 4D where
 
 open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Data.Bool using (true; false; if_then_else_) renaming (Bool to 𝔹)
@@ -22,24 +19,27 @@ data Tr : Set
 
 data Mc : Set
 
--- λD types
+-- Term types
 data Ty where
   Nat   : Ty
   Bool  : Ty
   _⇒_⟨_,_⟩_⟨_,_⟩_ : Ty → Ty → Tr → Mc → Ty → Tr → Mc → Ty → Ty
 
+-- Trail types
 data Tr where
   ●μ       : Tr
   _⇨⟨_,_⟩_ : Ty → Tr → Mc → Ty → Tr
 
 infix 5 _⇨⟨_,_⟩_
 
+-- Meta continuation types
 data Mc where
   ●σ       : Mc
   _⇨⟨_,_⟩_×_∷_ : Ty → Tr → Mc → Ty → Tr → Mc → Mc
 
 infix 6 _⇨⟨_,_⟩_×_∷_
 
+-- Compatibility relation
 compatible : Tr → Tr → Tr → Set
 compatible ●μ μ₂ μ₃ = μ₂ ≡ μ₃
 compatible (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') ●μ μ₃ = (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') ≡ μ₃
@@ -47,6 +47,7 @@ compatible (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') (τ₂ ⇨⟨ μ₂ , σ₂ �
 compatible (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁') (τ₂ ⇨⟨ μ₂ , σ₂ ⟩ τ₂') (τ₃ ⇨⟨ μ₃ , σ₃ ⟩ τ₃') =
   τ₁ ≡ τ₃ × τ₁' ≡ τ₃' × σ₁ ≡ σ₃ × compatible (τ₂ ⇨⟨ μ₂ , σ₂ ⟩ τ₂') μ₃ μ₁
 
+-- Identity continuation check
 id-cont-type : Ty → Tr → Mc → Ty → Set
 id-cont-type τ ●μ ●σ τ' = τ ≡ τ'
 id-cont-type τ ●μ (τ₁ ⇨⟨ μ₁ , σ₁ ⟩ τ₁' × μ₂ ∷ σ₂) τ' = (τ ≡ τ₁) × (τ' ≡ τ₁') × (μ₁ ≡ μ₂) × (σ₁ ≡ σ₂)
@@ -75,10 +76,6 @@ data Exp (var : Ty → Set) : Ty → Tr → Mc → Ty → Tr → Mc → Ty → S
              Exp var (τ₁ ⇒ τ₂ ⟨ μα , σα ⟩ α ⟨ μβ , σβ ⟩ β) μγ σγ γ μδ σδ δ →
              Exp var τ₁ μβ σβ β μγ σγ γ →
              Exp var τ₂ μα σα α μδ σδ δ
-  Plus     : {α β γ : Ty} {μα μβ μγ : Tr} {σα σβ σγ : Mc} →
-             Exp var Nat μα σα α μβ σβ β →
-             Exp var Nat μγ σγ γ μα σα α →
-             Exp var Nat μγ σγ γ μβ σβ β
   Shift    : {τ τ₁ τ₂ α β γ γ' : Ty} {μ₁ μ₂ μβ μid : Tr} {σ₁ σ₂ σβ σid : Mc} →
              id-cont-type γ μid σid γ' →
              (var (τ ⇒ τ₁ ⟨ μ₁ , σ₁ ⟩ τ₂ ⟨ μ₂ , σ₂ ⟩ α) →
@@ -125,6 +122,7 @@ data Exp (var : Ty → Set) : Ty → Tr → Mc → Ty → Tr → Mc → Ty → S
 〚 τ ⇨⟨ μ , σ ⟩ τ' × μ' ∷ σ' 〛σ =
   ((〚 τ 〛τ → 〚 μ 〛μ → 〚 σ 〛σ → 〚 τ' 〛τ) × 〚 μ' 〛μ) × 〚 σ' 〛σ
 
+-- Trail composition
 compose-trail : {μ₁ μ₂ μ₃ : Tr} →
                 compatible μ₁ μ₂ μ₃ → 〚 μ₁ 〛μ → 〚 μ₂ 〛μ → 〚 μ₃ 〛μ
 compose-trail {●μ} refl tt t2 = t2
@@ -152,10 +150,6 @@ g (Lam f) k t m = k (λ x t₁ m₁ → g {var = 〚_〛τ} (f x) t₁ m₁) t m
 g (App e₁ e₂) k t m =
   g {var = 〚_〛τ} e₁
     (λ v₁ t₁ m₁ → g {var = 〚_〛τ} e₂ (λ v₂ t₂ m₂ → v₁ v₂ k t₂ m₂) t₁ m₁) t m
-g (Plus e₁ e₂) k t m =
-  g {var = 〚_〛τ} e₁
-    (λ v₁ t₁ m₁ → g {var = 〚_〛τ} e₂
-                    (λ v₂ t₂ m₂ → k (v₁ + v₂) t₂ m₂) t₁ m₁) t m
 g (Shift is-id f) k t m = g {var = 〚_〛τ} (f (λ v k' t' m' → k v t (((k' , t') , m')))) (idk is-id) tt m
 g (Shift0 f) k t ((k₀ , t₀) , m₀) = g {var = 〚_〛τ} (f (λ v k' t' m' → k v t ((k' , t') , m'))) k₀ t₀ m₀
 g (Control is-id c₁ c₂ f) k t m =
@@ -170,8 +164,6 @@ g (Prompt0 is-id e) k t m =
   g {var = 〚_〛τ} e (idk is-id) tt ((k , t) , m)
 
 -- Top-level evaluation
--- For Control0/Prompt0, μ can have the form of τ₁ ⇨⟨ ●μ , σ ⟩ τ₁, not ●μ
--- For other operators, ●μ can be accepted as μ
 go : {τ : Ty} {μ : Tr} → id-cont-type τ μ ●σ τ → Exp 〚_〛τ τ μ ●σ τ μ ●σ τ → 〚 τ 〛τ
 go {μ = ●μ} refl e = g {var = 〚_〛τ} e (λ z _ _ → z) tt tt
 go {μ = τ₁ ⇨⟨ ●μ , σ ⟩ τ₁} (refl , refl , refl , refl) e =
